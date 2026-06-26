@@ -35,6 +35,57 @@ Content-Type: application/json
 Use `Idempotency-Key` for retries so a repeated final `200` response is not
 counted twice.
 
+## Cache Discipline
+
+Gateway caches successful `200` data responses for 30 days. Cache is active for
+all account request modes, including `strict_1_to_1`.
+
+For repeated analysis, reuse the exact same endpoint path, query parameters,
+and JSON body. Query and JSON field ordering are normalized, but changing dates,
+path, page range, filters, FBS flag, SKU, or report type creates a new cache key
+and can spend quota again.
+
+On cache reuse, expect:
+
+```text
+X-Cache: HIT
+X-Consumed-Quota: 0
+X-MPSTATS-Calls: 0
+```
+
+## Quota Budgeting
+
+Before data requests:
+
+1. Call `GET /api/v1/quota`.
+2. Call `GET /api/v1/quota/pricing`.
+3. Estimate the planned calls and total endpoint cost.
+4. Stop and ask the operator if remaining quota is lower than the planned cost.
+
+Read these response headers after every request:
+
+- `X-Quota-Cost`: expected endpoint cost.
+- `X-Consumed-Quota`: newly charged quota after a final successful `200`.
+- `X-Remaining-Quota`: remaining account quota.
+- `X-MPSTATS-Calls`: upstream attempts, not billable units.
+
+Current high-cost production rules:
+
+| Endpoint key | Cost |
+|---|---:|
+| `analytics/v1/wb/category/items` | 30 |
+| `analytics/v1/wb/category/categories` | 20 |
+| Other `analytics/v1/wb/category/...` analytics reports | 20 |
+| `analytics/v1/wb/items` | 3 |
+| `analytics/v1/wb/items/{sku}/full` | 3 |
+| `analytics/v1/wb/items/{sku}/by_period` | 3 |
+| `analytics/v1/wb/items/{sku}/keywords` | 3 |
+
+For niche/category analysis, do not run broad exploratory category calls in a
+loop. Use one rubricator lookup, choose the exact path, then run the minimum
+heavy reports needed for the user's question. Do not repeat the same failed or
+empty query with small variations unless the operator approves the extra cost.
+
 ## Category Request
 
 ```bash
@@ -57,6 +108,10 @@ For a compact category trend report, prefer:
 
 Use `category/compare` only when the task explicitly needs two-period
 comparison.
+
+For a full niche report, explain the expected cost before calling
+`category/items` or `category/categories`. These endpoints are intentionally
+priced as heavy calls.
 
 ## Item Request
 
@@ -81,6 +136,9 @@ For a compact SKU report, prefer at most:
 1. `GET items/{sku}/full`
 2. `GET items/{sku}/by_period`
 3. optionally `POST items/{sku}/keywords`
+
+Do not add balance, comments, FAQ, photo history, and keyword reports unless
+the user asks for that detail; each extra report may consume additional quota.
 
 ## Stop Conditions
 

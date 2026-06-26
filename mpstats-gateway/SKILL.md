@@ -35,8 +35,9 @@ master token.
 2. Read `references/request-patterns.md`.
 3. Call `GET /status` on `MPSTATS_GATEWAY_BASE_URL`.
 4. Call `GET /api/v1/quota` with `X-Api-Key`.
-5. Continue only when gateway status is `active`, user status is `active`, and
-   remaining quota is greater than `0`.
+5. Call `GET /api/v1/quota/pricing` with `X-Api-Key`.
+6. Continue only when gateway status is `active`, user status is `active`, and
+   remaining quota is greater than the planned endpoint cost.
 
 ## Request Rules
 
@@ -53,14 +54,26 @@ master token.
 - Use only `/api/v1/mpstats/...` paths listed in `references/endpoints.md`.
 - Use the internal header `X-Api-Key: <gateway authorization token>`.
 - Add an `Idempotency-Key` for every retryable request.
+- Before a data call, check the planned endpoint cost from
+  `/api/v1/quota/pricing`. Do not start a request when remaining quota is lower
+  than the endpoint cost.
+- Avoid exploratory heavy category calls. `category/items` and
+  `category/categories` are expensive; use them only when the user explicitly
+  needs niche/category analytics.
 - Do not send or store MPSTATS master tokens.
 - Do not invent paths. If the needed path is not whitelisted, ask the operator
   to add it to the gateway backlog.
 - Treat `safe_mode`, `pool_exhausted`, `frozen`, `blocked`, and `inactive` as
   stop conditions.
+- Gateway caches successful `200` data responses for 30 days across all request
+  modes. A repeated identical request can return `X-Cache: HIT` or `DEDUPED`,
+  `X-Consumed-Quota: 0`, and `X-MPSTATS-Calls: 0`.
+- Reuse the exact same path, query parameters, and JSON body when repeating a
+  previous analysis. Small parameter changes create a new cache key and can
+  spend quota again.
 - Expect agent accounts to run in `strict_1_to_1` mode unless the operator
-  explicitly switches them to an economy mode. In strict mode, a normal data
-  request is sent to MPSTATS once and cache/deduplication should not be assumed.
+  explicitly switches them to an economy mode. In strict mode, a cache miss
+  makes at most one outbound MPSTATS attempt; cache hits do not call MPSTATS.
 - The agent sends requests only to the Gateway. The Gateway injects the MPSTATS
   token server-side and sends the upstream MPSTATS request through the
   configured outbound proxy. The agent must not configure or use the MPSTATS
@@ -72,6 +85,7 @@ Always inspect these response headers when present:
 
 - `X-Request-ID`
 - `X-Consumed-Quota`
+- `X-Quota-Cost`
 - `X-MPSTATS-Calls`
 - `X-Total-Consumed`
 - `X-Remaining-Quota`
@@ -81,10 +95,11 @@ Always inspect these response headers when present:
 Do not maintain a separate quota counter. Trust `/api/v1/quota` and the gateway
 headers.
 
-`X-Consumed-Quota` is the billable successful MPSTATS result count. `X-MPSTATS-Calls`
-is the number of upstream MPSTATS attempts made for this gateway request.
-Retries or processing responses may make these values differ outside strict
-mode.
+`X-Quota-Cost` is the expected cost of the endpoint. `X-Consumed-Quota` is the
+actual billable quota charged after a final successful MPSTATS result.
+`X-MPSTATS-Calls` is the number of upstream MPSTATS attempts made for this
+gateway request. Cache hits and idempotent replays should report zero upstream
+calls and zero newly consumed quota.
 
 ## Minimal Agent Flow
 
@@ -92,6 +107,9 @@ mode.
 curl "$MPSTATS_GATEWAY_BASE_URL/status"
 
 curl "$MPSTATS_GATEWAY_BASE_URL/api/v1/quota" \
+  -H "X-Api-Key: $MPSTATS_GATEWAY_API_KEY"
+
+curl "$MPSTATS_GATEWAY_BASE_URL/api/v1/quota/pricing" \
   -H "X-Api-Key: $MPSTATS_GATEWAY_API_KEY"
 ```
 

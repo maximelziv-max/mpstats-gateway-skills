@@ -19,6 +19,30 @@ listed below.
 Do not call `/api/analytics/...`, `/analytics/...`, `/api/v1/analytics/...`,
 or any MPSTATS endpoint directly.
 
+Quota pricing:
+
+```text
+GET /api/v1/quota/pricing
+```
+
+Production Gateway accounts use weighted quota so user limits stay closer to
+the upstream MPSTATS balance. Check pricing before data requests and stop when
+remaining quota is lower than the planned endpoint cost.
+
+High-cost paths:
+
+| Gateway path key | Cost |
+|---|---:|
+| `analytics/v1/wb/category/items` | 30 |
+| `analytics/v1/wb/category/categories` | 20 |
+| Other `analytics/v1/wb/category/...` analytics reports | 20 |
+| `analytics/v1/wb/items` | 3 |
+| `analytics/v1/wb/items/{sku}/full` | 3 |
+| `analytics/v1/wb/items/{sku}/by_period` | 3 |
+| `analytics/v1/wb/items/{sku}/keywords` | 3 |
+| `analytics/v1/wb/items/{sku}/keywords/hourly` | 3 |
+| Unlisted paths in the pricing response | 1 |
+
 Allowed Wildberries v1 paths:
 
 | Purpose | Gateway path | Method |
